@@ -1,0 +1,179 @@
+local SDL = require("SDL")
+
+local didInitSDL = false
+
+local activeCanvases = {}
+local nextCanvasId = 1
+
+local loadedImages = {}
+local nextImageId = 1
+
+local canvasLib = {}
+
+function canvasLib.canvas_create(title)
+  if not didInitSDL then
+    SDL.init({ SDL.flags.Video })
+    didInitSDL = true
+  end
+
+  print(string.format('[Lua] Creating canvas with title: "%s"', title))
+
+  local width, height = 800, 600
+
+  local window, err = SDL.createWindow({
+    title = title,
+    width = width,
+    height = height,
+    flags = { SDL.flags.Resizable }
+  })
+  if not window then error(err) end
+
+  local renderer, rErr = SDL.createRenderer(window, -1, {
+    SDL.rendererFlags.Accelerated,
+    SDL.rendererFlags.PresentVSync
+  })
+  if not renderer then error(rErr) end
+
+  local id = nextCanvasId
+  nextCanvasId = nextCanvasId + 1
+
+  print("Set id " .. id)
+  activeCanvases[id] = {
+    window = window,
+    renderer = renderer,
+    width = width,
+    height = height
+  }
+  return id
+end
+
+function canvasLib.canvas_resize(windowId, w, h)
+  local canvas = activeCanvases[windowId]
+  if not canvas then return end
+
+  print(string.format("[Lua] Resizing canvas %d to %dx%d", windowId, w, h))
+  canvas.window:setSize(w, h)
+  canvas.width = w
+  canvas.height = h
+end
+
+function canvasLib.canvas_destroy(windowId)
+  local canvas = activeCanvases[windowId]
+  if not canvas then return end
+
+  activeCanvases[windowId] = nil
+end
+
+function canvasLib.canvas_set_color(windowId, r, g, b, a)
+  local canvas = activeCanvases[windowId]
+  if not canvas then return end
+
+  assert(canvas.renderer:setDrawColor({ a = a or 255, r = r, g = g, b = b}))
+end
+
+function canvasLib.canvas_fill_rect(windowId, x, y, w, h)
+  local canvas = activeCanvases[windowId]
+  if not canvas then return end
+
+  assert(canvas.renderer:fillRect({ x = x, y = y, w = w, h = h }))
+end
+
+function canvasLib.canvas_load_image(w, h, buf, bufOffset)
+  local primaryCanvas = next(activeCanvases) and activeCanvases[next(activeCanvases)]
+  if not primaryCanvas then
+    print("[Lua] Error: Cannot load image without an active canvas renderer")
+    return 0
+  end
+
+  local surface, err = SDL.createRGBSurface(w, h, 32)
+  if not surface then
+    print("[Lua] Surface creation failed: " .. tostring(err))
+    return 0
+  end
+
+  -- Proper texture loading is broken in SDL
+
+  local pixelIndex = bufOffset + 1
+
+  for y = 0, h - 1 do
+    for x = 0, w - 1 do
+      local rgba = buf[pixelIndex]
+
+      local a = math.floor(rgba / 16777216) % 256
+      local r = math.floor(rgba / 65536) % 256
+      local g = math.floor(rgba / 256) % 256
+      local b = rgba % 256
+
+      surface:fillRect(
+        { x = x, y = y, w = 1, h = 1 },
+        { r = r, g = g, b = b, a = a })
+
+      pixelIndex = pixelIndex + 1
+    end
+  end
+
+  local texture, texErr = primaryCanvas.renderer:createTextureFromSurface(surface)
+  if not texture then
+    print("[Lua] Texture creation failed: " .. tostring(texErr))
+    return 0
+  end
+
+  local imageId = nextImageId
+  nextImageId = nextImageId + 1
+
+  loadedImages[imageId] = {
+    width = w,
+    height = h,
+    texture = texture
+  }
+
+  print(string.format("[Lua] Successfully loaded image #%d (%dx%d)", imageId, w, h))
+  return imageId
+end
+
+function canvasLib.canvas_destroy_image(imageId)
+  local image = loadedImages[imageId]
+  if not image then return end
+
+  loadedImages[imageId] = nil
+end
+
+function canvasLib.canvas_draw_image(canvasId, imageId, srcX, srcY, srcW, srcH, destX, destY, destW, destH)
+  local canvas = activeCanvases[canvasId]
+  local image = loadedImages[imageId]
+  if not canvas or not image then return true end
+
+  local srcRect = { x = srcX, y = srcY, w = srcW, h = srcH }
+  local destRect = { x = destX, y = destY, w = destW, h = destH }
+
+  canvas.renderer:copy(image.texture, srcRect, destRect)
+  return false
+end
+
+local function runLoop(frame)
+  while true do
+    for _, v in pairs(activeCanvases) do
+      v.renderer:setDrawColor(0, 0, 0, 255)
+      v.renderer:clear()
+    end
+
+    if not frame() then
+      return
+    end
+
+    for _, v in pairs(activeCanvases) do
+      v.renderer:present()
+    end
+
+    for event in SDL.pollEvent() do
+      if event.type == SDL.event.Quit then
+        return
+      end
+    end
+  end
+end
+
+return {
+  canvas = canvasLib,
+  runLoop = runLoop
+}

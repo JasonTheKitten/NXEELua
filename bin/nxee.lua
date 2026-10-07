@@ -78,12 +78,60 @@ local fds = {
 }
 local wasi = wasiLib.create(env, fds)
 
+local driver = localRequire("driver")
+local canvas = localRequire("lib/canvlib").env
+
 local VM = lwRequire("lib/vm")
 local vm = assert(VM.createVM(module, {
   wasi_snapshot_preview1 = wasi.imports,
-  env = {}
+  env = canvas
 }))
+local exports = vm.exports
 wasi.initialize(vm)
+canvas.initialize(exports.memory)
 
-print(assert(vm.exports.__wasm_call_ctors()))
-print(assert(vm.exports.init_game()))
+assert(exports.__wasm_call_ctors())
+local _, err = assert(exports.init_game())
+if err ~= 0 then
+  print("init_game failed with code:", err);
+end
+
+print("Entering main loop")
+local hadPrevMap = false
+
+driver.runLoop(function()
+  local _, isGameRunning = assert(exports.is_game_running())
+  if isGameRunning == 0 then
+    print("Shutting down...")
+    exports.game_shutdown()
+    return false
+  end
+
+  local _, shouldSwitchMap = assert(exports.should_switch_map())
+  if shouldSwitchMap == 1 then
+    if hadPrevMap then
+      print("Exit map...")
+      exports.stageboss_on_map_exit()
+    end
+
+    print("Switch map...")
+    local _, mapErr = assert(exports.handle_map_switch())
+    if mapErr ~= 0 then
+      print("handle_map_switch failed, shutting down...")
+      exports.game_shutdown()
+      return false
+    end
+  end
+
+  _, isGameRunning = assert(exports.is_game_running())
+  if isGameRunning == 0 then
+    print("Shutting down...")
+    exports.game_shutdown()
+    return false
+  end
+
+  assert(exports.run_tick())
+  hadPrevMap = true
+
+  return true
+end)
