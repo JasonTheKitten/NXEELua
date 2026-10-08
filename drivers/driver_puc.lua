@@ -150,7 +150,37 @@ function canvasLib.canvas_draw_image(canvasId, imageId, srcX, srcY, srcW, srcH, 
   return false
 end
 
-local function runLoop(frame)
+local function handleEvent(event, profiler)
+  if event.type == SDL.event.KeyDown then
+    local key = event.keysym.sym
+
+    if key == SDL.key.F5 then
+      profiler.reset()
+      profiler.enable()
+      print("Profiler reset")
+    elseif key == SDL.key.F6 then
+      profiler.dump()
+    elseif key == SDL.key.F7 then
+      if profiler.isInstructionProfilingEnabled() then
+        profiler.disableInstructions()
+        print("Instruction profiling disabled")
+      else
+        profiler.enableInstructions()
+        print("Instruction profiling enabled")
+      end
+    elseif key == SDL.key.F8 then
+      if profiler.isEnabled() then
+        profiler.disable()
+        print("Profiler disabled")
+      else
+        profiler.enable()
+        print("Profiler enabled")
+      end
+    end
+  end
+end
+
+local function runLoop(frame, profiler)
   while true do
     for _, v in pairs(activeCanvases) do
       v.renderer:setDrawColor(0, 0, 0, 255)
@@ -168,6 +198,8 @@ local function runLoop(frame)
     for event in SDL.pollEvent() do
       if event.type == SDL.event.Quit then
         return
+      else
+        handleEvent(event, profiler)
       end
     end
   end

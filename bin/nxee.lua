@@ -90,6 +90,10 @@ local exports = vm.exports
 wasi.initialize(vm)
 canvas.initialize(exports.memory)
 
+vm.profiler.disableInstructions()
+vm.profiler.disable()
+
+local time = os.time()
 assert(exports.__wasm_call_ctors())
 local _, err = assert(exports.init_game())
 if err ~= 0 then
@@ -131,7 +135,11 @@ driver.runLoop(function()
   end
 
   assert(exports.run_tick())
+  
+  if not hadPrevMap then
+    print(os.time() - time)
+  end
   hadPrevMap = true
 
   return true
-end)
+end, vm.profiler)
