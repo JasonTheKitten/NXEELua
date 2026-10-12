@@ -1,6 +1,7 @@
 local virtCanvLib = localRequire("lib/virtcanv")
 local bits = lwRequire("lib/bits")
-local band, bshr, bor, bshl = bits.band, bits.shr, bits.bor, bits.shl
+local lwDriver = lwRequire("driver")
+local bor, bshl = bits.bor, bits.shl
 
 local activeCanvases = {}
 local nextCanvasId = 1
@@ -42,7 +43,8 @@ local ARROW_SCAN_CODES = {
   [keys.right] = 79,
   [keys.left] = 80,
   [keys.down] = 81,
-  [keys.up] = 82
+  [keys.up] = 82,
+  [keys.tab] = 41
 }
 
 for key, scanCode in pairs(ARROW_SCAN_CODES) do
@@ -50,6 +52,7 @@ for key, scanCode in pairs(ARROW_SCAN_CODES) do
   luaToKeyCodeMap[key] = bor(scanCode, SDLK_SCANCODE_MASK)
 end
 luaToKeyCodeMap[keys.enter] = 13
+luaToKeyCodeMap[keys.tab] = 27
 
 local queuedEvents = {}
 local function handleKeyEvent(e)
@@ -135,7 +138,6 @@ function canvasLib.canvas_create(title)
   local id = nextCanvasId
   nextCanvasId = nextCanvasId + 1
 
-  print("Set id " .. id)
   activeCanvases[id] = {
     window = window,
     renderer = renderer,
@@ -241,7 +243,7 @@ function canvasLib.canvas_poll_event(eventPtr)
     memory.writeU32(eventPtr + 16, event.scanCode)
     memory.writeU32(eventPtr + 20, event.keyCode)
   else
-    console.log("Unrecognized Event Type", event.type)
+    print("[Lua] Unrecognized Event Type", event.type)
     return 0
   end
 
@@ -252,14 +254,19 @@ local function runLoop(frame)
   local fpsStart = os.clock()
   local fpsFrames = 0
 
+  _G.__drawTextureTime = 0
+  _G.__profiledFrameTime = 0
+  _G.__profiledSleepTime = 0
+
   while true do
+    local preClock = os.clock()
+
     for _, v in pairs(activeCanvases) do
       v.resetColors()
       v.renderer.setColor(0, 0, 0, 255)
       v.renderer.clear()
     end
 
-    local preClock = os.clock()
     if not frame() then
       return
     end
@@ -268,29 +275,68 @@ local function runLoop(frame)
       v.renderer.present()
     end
 
-    fpsFrames = fpsFrames + 1
     local now = os.clock()
+    local frameElapsed = now - preClock
+
+    fpsFrames = fpsFrames + 1
+    _G.__profiledFrameTime =
+      _G.__profiledFrameTime + frameElapsed
+
     local fpsElapsed = now - fpsStart
 
     if fpsElapsed >= 1 then
-      print(string.format("FPS: %.1f", fpsFrames / fpsElapsed))
+      local drawTime = _G.__drawTextureTime
+      local frameTime = _G.__profiledFrameTime
+      local sleepTime = _G.__profiledSleepTime
+
+      local totalTime = frameTime + sleepTime
+
+      local drawPercent = 0
+      local sleepPercent = 0
+
+      if totalTime > 0 then
+        drawPercent = drawTime / totalTime * 100
+        sleepPercent = sleepTime / totalTime * 100
+      end
+
+      local otherPercent = 100 - drawPercent - sleepPercent
+
+      print(string.format(
+        "FPS: %.1f | vm: %.1f%% | gfx: %.1f%% | down: %.1f%%",
+        fpsFrames / fpsElapsed,
+        otherPercent,
+        drawPercent,
+        sleepPercent
+      ))
+
       fpsFrames = 0
       fpsStart = now
+
+      _G.__drawTextureTime = 0
+      _G.__profiledFrameTime = 0
+      _G.__profiledSleepTime = 0
     end
 
-    local ellapsed = os.clock() - preClock
-
+    local elapsed = os.clock() - preClock
     ---@diagnostic disable-next-line: undefined-field
-    os.startTimer(math.max(0.016 - ellapsed, 0.001))
+    os.startTimer(math.max(0.016 - elapsed, 0.001))
+    local sleepElapsed = 0
     while true do
+      local waitStart = os.clock()
       ---@diagnostic disable-next-line: undefined-field
       local event = { os.pullEvent() }
+      lwDriver.resetTimeout()
+      sleepElapsed = sleepElapsed + (os.clock() - waitStart)
+
       if event[1] == "timer" then
         break
       elseif event[1] == "key" or event[1] == "key_up" then
         handleKeyEvent(event)
       end
     end
+
+    _G.__profiledSleepTime =
+      _G.__profiledSleepTime + sleepElapsed
   end
 end
 

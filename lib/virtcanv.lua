@@ -1,8 +1,7 @@
 local bits = lwRequire("lib/bits")
 local band, bshr, bor, bshl = bits.band, bits.shr, bits.bor, bits.shl
-local char, gsub, sub = string.char, string.gsub, string.sub
+local char, sub = string.char, string.sub
 local max, min = math.max, math.min
-local concat = table.concat
 
 -- Why does color unpacking here differ from the SDL version??
 local function unpackABGR(argb)
@@ -53,6 +52,14 @@ local function createVirtCanv(options)
   local currentColorTbl = { 0, 0, 0, 255 }
   local l, h = 0, 0
 
+  local hadTextureChanges = false
+  local function recompositeIfNeeded()
+    if hadTextureChanges then
+      virtCanv.compositeTextures()
+      hadTextureChanges = false
+    end
+  end
+
   local function getColor(op)
     local c = op or currentColorTbl
     return char(colors(c[1], c[2], c[3], c[4]))
@@ -70,6 +77,7 @@ local function createVirtCanv(options)
   end
 
   function virtCanv.present()
+    recompositeIfNeeded()
     updateCallback(buffer, l, h)
   end
 
@@ -92,6 +100,7 @@ local function createVirtCanv(options)
       return
     end
 
+    recompositeIfNeeded()
     local currentColor = getColor()
     local between = currentColor:rep(rl)
     for y2 = 1, rh do
@@ -106,10 +115,9 @@ local function createVirtCanv(options)
     currentColorTbl = { r, g, b, a }
   end
 
-  local texCache = {}
   function virtCanv.clear()
     colorCache = {}
-    texCache = {}
+    hadTextureChanges = false
     virtCanv.fillRect(0, 0, l, h)
   end
 
@@ -120,33 +128,22 @@ local function createVirtCanv(options)
 
     local nextIdx = 0
     for y = 1, h do
-      local pixels, trans, transStart, transRun = {}, {}, 1, 0
+      local pixels, opaque, opaqueStart, opaqueRun = {}, {}, 1, 0
 
       for x = 1, w do
         local abgr = buf[bufOffset]
         bufOffset = bufOffset + 1
 
         local a, b, g, r = unpackABGR(abgr)
-        if a == 0 then
-          transRun = transRun + 1
-        end
-
-        if transRun > 0 then
-          trans[#trans + 1] = transStart
-          trans[#trans + 1] = transStart + transRun - 1
-          pixels[x] = char(0)
-          transRun = 0
-        end
-        transStart = x + 1
 
         local usedColor
         local existingColor = usedColorsCache[abgr]
         if existingColor then
           usedColor = existingColor
         else
-          usedColor = nextIdx
-          usedColors[nextIdx] = { r, g, b, a }
-          usedColorsCache[abgr] = nextIdx
+          usedColor = char(nextIdx)
+          usedColors[usedColor] = { r, g, b, a }
+          usedColorsCache[abgr] = usedColor
           nextIdx = nextIdx + 1
           if #usedColors > 255 then
             error("Out of colors")
@@ -154,18 +151,27 @@ local function createVirtCanv(options)
         end
 
         if a ~= 0 then
-          pixels[x] = char(usedColor)
+          opaqueRun = opaqueRun + 1
+          pixels[x] = usedColor
+        else
+          if opaqueRun > 0 then
+            opaque[#opaque + 1] = opaqueStart
+            opaque[#opaque + 1] = opaqueStart + opaqueRun - 1
+            opaqueRun = 0
+          end
+
+          opaqueStart = x + 1
         end
       end
 
-      if transRun > 0 then
-        trans[#trans + 1] = transStart
-        trans[#trans + 1] = transStart + transRun - 1
+      if opaqueRun > 0 then
+        opaque[#opaque + 1] = opaqueStart
+        opaque[#opaque + 1] = opaqueStart + opaqueRun - 1
       end
 
       texture[y] = {
-        pixels = table.concat(pixels),
-        transparent = trans,
+        pixels = pixels,
+        opaque = opaque,
       }
     end
 
@@ -174,16 +180,7 @@ local function createVirtCanv(options)
     return texture
   end
 
-  local function remapRow(row, texColors)
-    local replacements = {}
-
-    for i = 0, #texColors do
-      local c = texColors[i]
-      replacements[char(i)] = char(colors(c[1], c[2], c[3], c[4]))
-    end
-
-    return gsub(row, ".", replacements)
-  end
+  local drawQueue = {}
 
   function virtCanv.drawTexture(
     texture, srcX, srcY, srcW, srcH,
@@ -217,55 +214,94 @@ local function createVirtCanv(options)
       return true
     end
 
-    texCache[texture] = texCache[texture] or {}
-    local cCache = texCache[texture]
-    local colors = texture.colors
-    for y = 1, srcH do
-      local bufRow = buffer[destY + y]
-      local texRow = texture[srcY + y]
+    drawQueue[#drawQueue + 1] = {
+      texture = texture,
+      srcX = srcX,
+      srcY = srcY,
+      srcW = srcW,
+      srcH = srcH,
+      destX = destX,
+      destY = destY,
+    }
 
-      local mappedSource = cCache[srcY + y]
-      if not mappedSource then
-        mappedSource = remapRow(texRow.pixels, colors)
-        cCache[srcY + y] = mappedSource
-      end
-      local source = sub(mappedSource,srcX + 1, srcX + srcW)
-      
-      local parts = { sub(bufRow, 1, destX) }
-
-      local trans = texRow.transparent
-      local cursor = 1
-
-      for i = 1, #trans, 2 do
-        local first = max(trans[i], srcX + 1)
-        local last = min(trans[i + 1], srcX + srcW)
-
-        if first <= last then
-          local runStart = first - srcX
-          local runEnd = last - srcX
-
-          if runStart > cursor then
-            parts[#parts + 1] = sub(source, cursor, runStart - 1)
-          end
-
-          parts[#parts + 1] = sub(
-            bufRow, destX + runStart, destX + runEnd)
-
-          cursor = runEnd + 1
-        end
-
-        if trans[i] > srcX + srcW then break end
-      end
-
-      if cursor <= srcW then
-        parts[#parts + 1] = sub(source, cursor, srcW)
-      end
-
-      parts[#parts + 1] = sub(bufRow, destX + destW + 1)
-      buffer[destY + y] = concat(parts)
-    end
+    hadTextureChanges = true
 
     return true
+  end
+
+  local function getBufRow(rowBuffers, destY)
+    local bufRow = rowBuffers[destY]
+
+    if not bufRow then
+      local row = buffer[destY]
+      if row then
+        bufRow = {}
+        for x = 1, #row do
+          bufRow[x] = sub(row, x, x)
+        end
+        rowBuffers[destY] = bufRow
+      end
+    end
+
+    return bufRow
+  end
+
+  function virtCanv.compositeTextures()
+    local startTime = os.clock()
+
+    local rowBuffers = {}
+    local colorCaches = {}
+
+    for _, v in ipairs(drawQueue) do
+      local texture = v.texture
+      local colorMap = texture.colors
+
+      local mappedColors = colorCaches[texture]
+      if not mappedColors then
+        mappedColors = {}
+        colorCaches[texture] = mappedColors
+      end
+
+      for y = 1, v.srcH do
+        local srcRow = texture[v.srcY + y]
+        local destY = v.destY + y
+
+        local bufRow = getBufRow(rowBuffers, destY)
+        if bufRow then
+          local opaque = srcRow.opaque
+
+          for i = 1, #opaque, 2 do
+            local xStart = max(opaque[i], v.srcX + 1)
+            local xEnd = min(opaque[i + 1], v.srcX + v.srcW)
+
+            for srcX = xStart, xEnd do
+              local destX = srcX - v.srcX + v.destX
+              local ch = srcRow.pixels[srcX]
+
+              local mapped = mappedColors[ch]
+              if mapped == nil then
+                local rgba = colorMap[ch]
+                mapped = char(colors(
+                  rgba[1], rgba[2], rgba[3], rgba[4]
+                ))
+                mappedColors[ch] = mapped
+              end
+
+              bufRow[destX] = mapped
+            end
+          end
+        end
+      end
+    end
+
+    for y, row in pairs(rowBuffers) do
+      buffer[y] = table.concat(row)
+    end
+
+    drawQueue = {}
+
+    _G.__drawTextureTime = (_G.__drawTextureTime or 0)
+      + (os.clock() - startTime)
   end
 
   return virtCanv

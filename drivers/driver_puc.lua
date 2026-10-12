@@ -155,24 +155,24 @@ local function handleEvent(event, profiler)
     if key == SDL.key.F5 then
       profiler.reset()
       profiler.enable()
-      print("Profiler reset")
+      print("[Profiler] Profiler reset")
     elseif key == SDL.key.F6 then
       profiler.dump()
     elseif key == SDL.key.F7 then
       if profiler.isInstructionProfilingEnabled() then
         profiler.disableInstructions()
-        print("Instruction profiling disabled")
+        print("[Profiler] Instruction profiling disabled")
       else
         profiler.enableInstructions()
-        print("Instruction profiling enabled")
+        print("[Profiler] Instruction profiling enabled")
       end
     elseif key == SDL.key.F8 then
       if profiler.isEnabled() then
         profiler.disable()
-        print("Profiler disabled")
+        print("[Profiler] Profiler disabled")
       else
         profiler.enable()
-        print("Profiler enabled")
+        print("[Profiler] Profiler enabled")
       end
     end
   end
@@ -201,7 +201,11 @@ function canvasLib.canvas_poll_event(eventPtr)
   return 0
 end
 
+
 local function runLoop(frame, profiler)
+  local lastTime = os.time()
+  local frameCount = 0
+
   while true do
     for _, v in pairs(activeCanvases) do
       v.renderer:setDrawColor(0, 0, 0, 255)
@@ -216,6 +220,17 @@ local function runLoop(frame, profiler)
       v.renderer:present()
     end
 
+    frameCount = frameCount + 1
+
+    local now = os.time()
+    local elapsed = now - lastTime
+
+    if elapsed >= 1 then
+      print(string.format("Average FPS: %.2f", frameCount / elapsed))
+      frameCount = 0
+      lastTime = now
+    end
+
     for event in SDL.pollEvent() do
       if event.type == SDL.event.Quit then
         return
@@ -226,6 +241,7 @@ local function runLoop(frame, profiler)
     end
   end
 end
+
 
 return {
   canvas = canvasLib,

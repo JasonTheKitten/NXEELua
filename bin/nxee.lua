@@ -42,7 +42,6 @@ local function createRequire(baseDir)
     env.localRequire = createRequire(baseDir)
     env.lwRequire = lwRequire
 
-    print(filePath)
     local ok, err = env.loadfile(filePath, "t", env)
     if not ok then
       error(err)
@@ -67,7 +66,6 @@ local wasiFS = lwRequire("lib/wasi_fs")
 local moduleParser = lwRequire("lib/moduleparser")
 -- TODO: Replace with internal directory
 local testModule = wasiFS.relPath("../../nxengine-evo-js/bin/nx.wasm")
-print(testModule)
 local testModuleHandle, err = io.open(testModule, "rb")
 if not testModuleHandle then error(err) end
 local module, err = moduleParser.readModule(testModuleHandle)
@@ -106,16 +104,13 @@ local time = os.time()
 assert(exports.__wasm_call_ctors())
 local _, err = assert(exports.init_game())
 if err ~= 0 then
-  print("init_game failed with code:", err);
+  print("[LUA] init_game failed with code:", err);
 end
 
-print("Entering main loop")
 local hadPrevMap = false
-
 driver.runLoop(function()
   local _, isGameRunning = assert(exports.is_game_running())
   if isGameRunning == 0 then
-    print("Shutting down...")
     exports.game_shutdown()
     return false
   end
@@ -123,14 +118,11 @@ driver.runLoop(function()
   local _, shouldSwitchMap = assert(exports.should_switch_map())
   if shouldSwitchMap == 1 then
     if hadPrevMap then
-      print("Exit map...")
       exports.stageboss_on_map_exit()
     end
 
-    print("Switch map...")
     local _, mapErr = assert(exports.handle_map_switch())
     if mapErr ~= 0 then
-      print("handle_map_switch failed, shutting down...")
       exports.game_shutdown()
       return false
     end
@@ -138,7 +130,6 @@ driver.runLoop(function()
 
   _, isGameRunning = assert(exports.is_game_running())
   if isGameRunning == 0 then
-    print("Shutting down...")
     exports.game_shutdown()
     return false
   end
