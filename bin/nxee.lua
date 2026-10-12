@@ -1,5 +1,5 @@
 local originalEnv = {}
-for k, v in pairs(_ENV or _G) do
+for k, v in pairs(_G) do
   originalEnv[k] = v
 end
 
@@ -20,6 +20,8 @@ local function createRequire(baseDir)
     if loadName == "driver" then
       if originalEnv.DRIVER_NAME then
         loadName = "drivers/" .. originalEnv.DRIVER_NAME
+      elseif term and term.setGraphicsMode then
+        loadName = "drivers/driver_ccpc"
       else
         loadName = "drivers/driver_puc"
       end
@@ -34,10 +36,14 @@ local function createRequire(baseDir)
     for k, v in pairs(originalEnv) do
       env[k] = v
     end
+    env.loadfile = term and function(a, _, c) return loadfile(a, c) end or loadfile
+    ---@diagnostic disable-next-line: undefined-global
+    env.shell = shell
     env.localRequire = createRequire(baseDir)
     env.lwRequire = lwRequire
 
-    local ok, err = loadfile(filePath, "t", env)
+    print(filePath)
+    local ok, err = env.loadfile(filePath, "t", env)
     if not ok then
       error(err)
     end
@@ -53,17 +59,20 @@ lwRequire = createRequire(scriptDir .. "../luwasm/")
 
 --
 
+_G.load = load
+
+local wasiLib = lwRequire("lib/wasi")
+local wasiFS = lwRequire("lib/wasi_fs")
+
 local moduleParser = lwRequire("lib/moduleparser")
 -- TODO: Replace with internal directory
-local testModule = "../../nxengine-evo-js/bin/nx.wasm"
+local testModule = wasiFS.relPath("../../nxengine-evo-js/bin/nx.wasm")
+print(testModule)
 local testModuleHandle, err = io.open(testModule, "rb")
 if not testModuleHandle then error(err) end
 local module, err = moduleParser.readModule(testModuleHandle)
 testModuleHandle:close()
 if not module then error(err) end
-
-local wasiLib = lwRequire("lib/wasi")
-local wasiFS = lwRequire("lib/wasi_fs")
 
 local env = {}
 local fds = {
@@ -137,7 +146,7 @@ driver.runLoop(function()
   assert(exports.run_tick())
   
   if not hadPrevMap then
-    print(os.time() - time)
+    print("TIME", os.time() - time)
   end
   hadPrevMap = true
 

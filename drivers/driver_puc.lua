@@ -1,4 +1,6 @@
 local SDL = require("SDL")
+local bits = lwRequire("lib/bits")
+local band, bshr = bits.band, bits.shr
 
 local didInitSDL = false
 
@@ -9,6 +11,7 @@ local loadedImages = {}
 local nextImageId = 1
 
 local canvasLib = {}
+local memory
 
 function canvasLib.canvas_create(title)
   if not didInitSDL then
@@ -58,9 +61,6 @@ function canvasLib.canvas_resize(windowId, w, h)
 end
 
 function canvasLib.canvas_destroy(windowId)
-  local canvas = activeCanvases[windowId]
-  if not canvas then return end
-
   activeCanvases[windowId] = nil
 end
 
@@ -97,12 +97,11 @@ function canvasLib.canvas_load_image(w, h, buf, bufOffset)
 
   for y = 0, h - 1 do
     for x = 0, w - 1 do
-      local rgba = buf[pixelIndex]
-
-      local a = math.floor(rgba / 16777216) % 256
-      local r = math.floor(rgba / 65536) % 256
-      local g = math.floor(rgba / 256) % 256
-      local b = rgba % 256
+      local argb = buf[pixelIndex]
+      local a = band(bshr(argb, 24), 0xFF)
+      local r = band(bshr(argb, 16), 0xFF)
+      local g = band(bshr(argb, 8), 0xFF)
+      local b = band(argb, 0xFF)
 
       surface:fillRect(
         { x = x, y = y, w = 1, h = 1 },
@@ -146,8 +145,7 @@ function canvasLib.canvas_draw_image(canvasId, imageId, srcX, srcY, srcW, srcH, 
   local srcRect = { x = srcX, y = srcY, w = srcW, h = srcH }
   local destRect = { x = destX, y = destY, w = destW, h = destH }
 
-  canvas.renderer:copy(image.texture, srcRect, destRect)
-  return false
+  return not canvas.renderer:copy(image.texture, srcRect, destRect)
 end
 
 local function handleEvent(event, profiler)
@@ -180,6 +178,29 @@ local function handleEvent(event, profiler)
   end
 end
 
+local eventQueue = {}
+
+function canvasLib.canvas_poll_event(eventPtr)
+  if eventPtr < 1 or #eventQueue == 0 then
+    return 0
+  end
+
+  for i = 0, 56, 4 do
+    memory.writeU32(eventPtr + i, 0)
+  end
+
+  local event = table.remove(eventQueue, 1)
+
+  if event.type == SDL.event.KeyDown or event.type == SDL.event.KeyUp then
+    memory.writeU32(eventPtr, event.type)
+    memory.writeU32(eventPtr + 16, event.keysym.scancode)
+    memory.writeU32(eventPtr + 20, event.keysym.sym)
+    return 1
+  end
+
+  return 0
+end
+
 local function runLoop(frame, profiler)
   while true do
     for _, v in pairs(activeCanvases) do
@@ -199,6 +220,7 @@ local function runLoop(frame, profiler)
       if event.type == SDL.event.Quit then
         return
       else
+        eventQueue[#eventQueue + 1] = event
         handleEvent(event, profiler)
       end
     end
@@ -207,5 +229,6 @@ end
 
 return {
   canvas = canvasLib,
-  runLoop = runLoop
+  runLoop = runLoop,
+  initialize = function(m) memory = m end
 }
