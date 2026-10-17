@@ -18,6 +18,7 @@ local function packRGBA(r, g, b, a)
 end
 
 local function createVirtCanv(options)
+  local fpsData
   local updateCallback = options.updateCallback
   local colors = options.colors --virtCanv currently assumes color indices are 255 or less
   local colorCache = {}
@@ -65,6 +66,10 @@ local function createVirtCanv(options)
     return char(colors(c[1], c[2], c[3], c[4]))
   end
 
+  function virtCanv.attachMonitoring(fpsD)
+    fpsData = fpsD
+  end
+
   function virtCanv.resize(nl, nh)
     l = nl
     h = nh
@@ -78,7 +83,9 @@ local function createVirtCanv(options)
 
   function virtCanv.present()
     recompositeIfNeeded()
+    local startTime = os.clock()
     updateCallback(buffer, l, h)
+    _G.__drawTextureTime = _G.__drawTextureTime + (os.clock() - startTime)
   end
 
   function virtCanv.fillRect(x, y, rl, rh)
@@ -101,6 +108,8 @@ local function createVirtCanv(options)
     end
 
     recompositeIfNeeded()
+    local startTime = os.clock()
+    
     local currentColor = getColor()
     local between = currentColor:rep(rl)
     for y2 = 1, rh do
@@ -108,6 +117,10 @@ local function createVirtCanv(options)
       local before = rowStr:sub(1, x)
       local after = rowStr:sub(x + rl + 1)
       buffer[y + y2] = table.concat({ before, between, after })
+    end
+
+    if fpsData then
+      fpsData.drawTime = fpsData.drawTime + (os.clock() - startTime)
     end
   end
 
@@ -267,7 +280,7 @@ local function createVirtCanv(options)
         local destY = v.destY + y
 
         local bufRow = getBufRow(rowBuffers, destY)
-        if bufRow then
+        if bufRow and srcRow then -- TODO: Why is srcRow, on rare occassion, nil?
           local opaque = srcRow.opaque
 
           for i = 1, #opaque, 2 do
@@ -300,8 +313,9 @@ local function createVirtCanv(options)
 
     drawQueue = {}
 
-    _G.__drawTextureTime = (_G.__drawTextureTime or 0)
-      + (os.clock() - startTime)
+    if fpsData then
+      fpsData.drawTime = fpsData.drawTime + (os.clock() - startTime)
+    end
   end
 
   return virtCanv

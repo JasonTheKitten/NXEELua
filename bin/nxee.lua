@@ -91,26 +91,47 @@ local canvas = localRequire("lib/canvlib").env
 local VM = lwRequire("lib/vm")
 local vm = assert(VM.createVM(module, {
   wasi_snapshot_preview1 = wasi.imports,
-  env = canvas
+  env = canvas,
+  audio = driver.audio
 }))
 local exports = vm.exports
 wasi.initialize(vm)
 canvas.initialize(exports.memory)
+driver.audio.initialize(exports)
 
 vm.profiler.disableInstructions()
 vm.profiler.disable()
 
-local time = os.time()
+---@diagnostic disable-next-line: undefined-global
+local periphemu, peripheral = periphemu, peripheral
+if periphemu then
+  periphemu.create("left", "speaker")
+  periphemu.create("right", "speaker")
+end
+if peripheral then
+  local left = peripheral.wrap("left")
+  local right = peripheral.wrap("right")
+  if left and left.setPosition then left.setPosition(-10, 0, 0) end
+  if right and right.setPosition then right.setPosition(10, 0, 0) end
+  driver.audio.setSpeakers(left, right)
+end
+
+_G.__drawTextureTime = 0
+local time = term and os.clock() or os.time()
 assert(exports.__wasm_call_ctors())
 local _, err = assert(exports.init_game())
 if err ~= 0 then
-  print("[LUA] init_game failed with code:", err);
+  print("[Lua] init_game failed with code:", err);
+  return
 end
 
+print("[Lua] Entering main loop")
 local hadPrevMap = false
+
 driver.runLoop(function()
   local _, isGameRunning = assert(exports.is_game_running())
   if isGameRunning == 0 then
+    print("[Lua] Shutting down...")
     exports.game_shutdown()
     return false
   end
@@ -118,11 +139,14 @@ driver.runLoop(function()
   local _, shouldSwitchMap = assert(exports.should_switch_map())
   if shouldSwitchMap == 1 then
     if hadPrevMap then
+      print("[Lua] Exit map...")
       exports.stageboss_on_map_exit()
     end
 
+    print("[Lua] Switch map...")
     local _, mapErr = assert(exports.handle_map_switch())
     if mapErr ~= 0 then
+      print("[Lua] handle_map_switch failed, shutting down...")
       exports.game_shutdown()
       return false
     end
@@ -130,6 +154,7 @@ driver.runLoop(function()
 
   _, isGameRunning = assert(exports.is_game_running())
   if isGameRunning == 0 then
+    print("[Lua] Shutting down...")
     exports.game_shutdown()
     return false
   end
@@ -137,7 +162,9 @@ driver.runLoop(function()
   assert(exports.run_tick())
   
   if not hadPrevMap then
-    print("TIME", os.time() - time)
+    local ellapsedStart = (term and os.clock() or os.time()) - time
+    ---@diagnostic disable-next-line: undefined-global
+    print("[Lua] TIME", ellapsedStart)
   end
   hadPrevMap = true
 

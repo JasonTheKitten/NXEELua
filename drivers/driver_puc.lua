@@ -201,23 +201,21 @@ function canvasLib.canvas_poll_event(eventPtr)
   return 0
 end
 
+function canvasLib.canvas_present()
+  for _, v in pairs(activeCanvases) do
+    v.renderer:present()
+    v.renderer:setDrawColor(0, 0, 0, 255)
+    v.renderer:clear()
+  end
+end
 
 local function runLoop(frame, profiler)
   local lastTime = os.time()
   local frameCount = 0
 
   while true do
-    for _, v in pairs(activeCanvases) do
-      v.renderer:setDrawColor(0, 0, 0, 255)
-      v.renderer:clear()
-    end
-
     if not frame() then
       return
-    end
-
-    for _, v in pairs(activeCanvases) do
-      v.renderer:present()
     end
 
     frameCount = frameCount + 1
@@ -245,6 +243,7 @@ end
 
 return {
   canvas = canvasLib,
+  audio = localRequire("drivers/audio/audio_puc"),
   runLoop = runLoop,
   initialize = function(m) memory = m end
 }

@@ -1,4 +1,5 @@
 local virtCanvLib = localRequire("lib/virtcanv")
+local audioLib = localRequire("drivers/audio/audio_cc")
 local bits = lwRequire("lib/bits")
 local lwDriver = lwRequire("driver")
 local bor, bshl = bits.bor, bits.shl
@@ -11,8 +12,8 @@ local nextImageId = 1
 
 local canvasLib = {}
 
----@diagnostic disable: undefined-global
-local periphemu = periphemu
+---@diagnostic disable-next-line: undefined-global
+local periphemu, peripheral, keys = periphemu, peripheral, keys
 
 local function packRGBA(r, g, b, a)
   return bor(bshl(r, 24), bshl(g, 16), bshl(b, 8), a)
@@ -250,76 +251,91 @@ function canvasLib.canvas_poll_event(eventPtr)
   return 1
 end
 
-local function runLoop(frame)
-  local fpsStart = os.clock()
-  local fpsFrames = 0
+function canvasLib.canvas_present()
+  for _, v in pairs(activeCanvases) do
+    v.renderer.present()
+    v.resetColors()
+    v.renderer.setColor(0, 0, 0, 255)
+    v.renderer.clear()
+  end
+end
 
-  _G.__drawTextureTime = 0
-  _G.__profiledFrameTime = 0
-  _G.__profiledSleepTime = 0
+local function showFPS(fpsData, preClock)
+  local now = os.clock()
+  local frameElapsed = now - preClock
+
+  fpsData.fpsFrames = fpsData.fpsFrames + 1
+  fpsData.frameTime = fpsData.frameTime + frameElapsed
+
+  local fpsElapsed = now - fpsData.fpsStart
+
+  if fpsElapsed >= 1 then
+    local drawTime = fpsData.drawTime
+    local frameTime = fpsData.frameTime
+    local audioTime = fpsData.audioTime
+    local sleepTime = fpsData.sleepTime
+
+    -- drawTime is excluded because it is called into mid-frame
+    local totalTime = frameTime + audioTime + sleepTime
+
+    local drawPercent = drawTime / totalTime * 100
+    local audioPercent = audioTime / totalTime * 100
+    local sleepPercent = sleepTime / totalTime * 100
+    local otherPercent = 100 - drawPercent - audioPercent - sleepPercent
+
+    print(string.format(
+      "FPS: %.1f | vm: %.1f%% | gfx: %.1f%% | sfx: %.1f%%",
+      fpsData.fpsFrames / fpsElapsed,
+      otherPercent,
+      drawPercent,
+      audioPercent,
+      sleepPercent
+    ))
+
+    fpsData.fpsFrames = 0
+    fpsData.fpsStart = now
+
+    fpsData.frameTime = 0
+    fpsData.drawTime = 0
+    fpsData.audioTime = 0
+    fpsData.sleepTime = 0
+  end
+end
+
+local function initFPSData()
+  return {
+    fpsStart = os.clock(),
+    fpsFrames = 0,
+    frameTime = 0,
+    drawTime = 0,
+    audioTime = 0,
+    sleepTime = 0
+  }
+end
+
+local function runLoop(frame)
+  local fpsData = initFPSData()
+
+  for _, v in pairs(activeCanvases) do
+    v.renderer.attachMonitoring(fpsData)
+  end
 
   while true do
     local preClock = os.clock()
-
-    for _, v in pairs(activeCanvases) do
-      v.resetColors()
-      v.renderer.setColor(0, 0, 0, 255)
-      v.renderer.clear()
-    end
 
     if not frame() then
       return
     end
 
-    for _, v in pairs(activeCanvases) do
-      v.renderer.present()
-    end
+    local audioClock = os.clock()
+    audioLib.frame()
+    fpsData.audioTime = fpsData.audioTime + (os.clock() - audioClock)
 
-    local now = os.clock()
-    local frameElapsed = now - preClock
-
-    fpsFrames = fpsFrames + 1
-    _G.__profiledFrameTime =
-      _G.__profiledFrameTime + frameElapsed
-
-    local fpsElapsed = now - fpsStart
-
-    if fpsElapsed >= 1 then
-      local drawTime = _G.__drawTextureTime
-      local frameTime = _G.__profiledFrameTime
-      local sleepTime = _G.__profiledSleepTime
-
-      local totalTime = frameTime + sleepTime
-
-      local drawPercent = 0
-      local sleepPercent = 0
-
-      if totalTime > 0 then
-        drawPercent = drawTime / totalTime * 100
-        sleepPercent = sleepTime / totalTime * 100
-      end
-
-      local otherPercent = 100 - drawPercent - sleepPercent
-
-      print(string.format(
-        "FPS: %.1f | vm: %.1f%% | gfx: %.1f%% | down: %.1f%%",
-        fpsFrames / fpsElapsed,
-        otherPercent,
-        drawPercent,
-        sleepPercent
-      ))
-
-      fpsFrames = 0
-      fpsStart = now
-
-      _G.__drawTextureTime = 0
-      _G.__profiledFrameTime = 0
-      _G.__profiledSleepTime = 0
-    end
+    showFPS(fpsData, preClock)
 
     local elapsed = os.clock() - preClock
     ---@diagnostic disable-next-line: undefined-field
-    os.startTimer(math.max(0.016 - elapsed, 0.001))
+    os.startTimer(math.max(0.016 - elapsed - 0.001, 0.001))
     local sleepElapsed = 0
     while true do
       local waitStart = os.clock()
@@ -335,13 +351,17 @@ local function runLoop(frame)
       end
     end
 
-    _G.__profiledSleepTime =
-      _G.__profiledSleepTime + sleepElapsed
+    fpsData.sleepTime = fpsData.sleepTime + sleepElapsed
   end
+end
+
+local function initialize(m)
+  memory = m
 end
 
 return {
   canvas = canvasLib,
+  audio = audioLib,
   runLoop = runLoop,
-  initialize = function(m) memory = m end
+  initialize = initialize
 }
