@@ -26,3 +26,8 @@ Example layout:
 | - /data - New folder
     | - /data - Assets extracted from the game. See the nxengine-evo wiki to learn how to extract assets.
 ```
+
+## Screenshots
+
+![Screenshot of NXEngine-Evo Gameplay](screenshots/2026-10-15_19-54.png)
+![Screenshot of NXEngine-Evo Credits](screenshots/2026-10-16_17-03_1.png)
