@@ -5,7 +5,7 @@ NXEELua is a project that allows for running a port of NXEngine-Evo in Lua.
 In order to achieve this, three repositories come into play:
 
 * [luwasm](https://github.com/JasonTheKitten/luwasm) - A WebAssembly VM running in Lua. The VM was specifically made to run this project (and has not been tested against other programs.
-* [NXEELua] - Binds luwasm functions used by the port for graphics and audio, and executes the main game loop.
+* [NXEELua](https://github.com/JasonTheKitten/NXEELua) - Binds luwasm functions used by the port for graphics and audio, and executes the main game loop.
 * [NXEngine-Evo WASM Port](https://github.com/JasonTheKitten/nxengine-evo-wasm) - This repository ports NXEngine-Evo to run in WebAssembly, stubs a number of SDL functions, and exports
 functions that can be passed to the WASM VM to handle graphics and audio rendering.
 
