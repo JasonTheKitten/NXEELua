@@ -66,6 +66,10 @@ end
 
 local memory
 
+function canvasLib.input_use_tab()
+  return true
+end
+
 function canvasLib.canvas_create(title)
   print(string.format('[Lua] Creating canvas with title: "%s"', title))
 
@@ -108,6 +112,7 @@ function canvasLib.canvas_create(title)
     for k, v in ipairs(palette) do
       window.setPaletteColor(k, v[1] / 255, v[2] / 255, v[3] / 255)
     end
+    nextPaletteIndex = 1
   end
 
   window.setPaletteColor(0, 0, 0, 0)

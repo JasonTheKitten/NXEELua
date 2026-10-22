@@ -13,6 +13,10 @@ local nextImageId = 1
 local canvasLib = {}
 local memory
 
+function canvasLib.input_use_tab()
+  return false
+end
+
 function canvasLib.canvas_create(title)
   if not didInitSDL then
     SDL.init({ SDL.flags.Video })
