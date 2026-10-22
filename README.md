@@ -21,10 +21,13 @@ The luwasm and nxeelua folders should be sibling directories. You should also pu
 
 Example layout:
 ```
-- /luwasm - Wasm VM
-- /nxeelua - NXEELua repo
-| - /data - New folder
-    | - /data - Assets extracted from the game. See the nxengine-evo wiki to learn how to extract assets.
+- luwasm/ - Wasm VM repo
+- nxeelua/ - NXEELua repo
+| - data/ - New folder
+|   | - data/ - Assets extracted from the game. See the nxengine-evo wiki to learn how to extract assets.
+- nxengine-evo-js/ - New folder
+  | - bin/ - New folder
+    | - nx.wasm - Compilation of the Wasm port of nxengine-evo
 ```
 
 ## Screenshots
