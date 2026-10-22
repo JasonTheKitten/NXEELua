@@ -15,7 +15,7 @@ On LuaJIT and PUC Lua 5.5, graphics are handled by luasdl2 and audio is a stub. 
 
 On CraftOS-PC and CraftOS-PC: Accelerated, graphics and audio are handled via periphemu, and no additional configuration needs done. Audio mixing is done via `lib/mixer.lua`, and framebuffering is done via `lib/virtcanv.lua`.
 
-It is recommended you run in either CraftOS-PC: Accellerated or LuaJIT (as opposed to their slower predecessors).
+It is recommended you run in either CraftOS-PC: Accelerated or LuaJIT (as opposed to their slower predecessors).
 
 The luwasm and nxeelua folders should be sibling directories. You should also put assets from the official game in `nxeelua/data/data`
 
